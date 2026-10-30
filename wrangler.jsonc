@@ -9,6 +9,6 @@
     "run_worker_first": ["/api/*"]
   },
   "kv_namespaces": [
-    { "binding": "LINKS", "id": "PASTE_KV_NAMESPACE_ID_HERE" }
+    { "binding": "LINKS", "id": "63b80d1b03484788b57d2aab41cb81f1" }
   ]
 }
