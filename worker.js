@@ -1,6 +1,8 @@
 // TH3 BUNNY M. — payment link backend (Cloudflare Worker + KV)
-// Secrets (Dashboard > Worker > Settings > Variables and Secrets): FAM_API_KEY, ADMIN_PASSWORD
+// Secret (Dashboard > Worker > Settings > Variables and Secrets): FAM_API_KEY
 const FAM = 'https://famgateway.in';
+const API_KEY = 'fam_664f30ca534c34acdba8d070bcf74abf17d703ca'; // GitHub repo PRIVATE rakhna!
+const keyOf = env => env.FAM_API_KEY || API_KEY;
 const te = new TextEncoder();
 const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 const rid = () => { const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', a = new Uint32Array(8); crypto.getRandomValues(a); return [...a].map(n => c[n % c.length]).join(''); };
@@ -15,7 +17,7 @@ const putL = (env, l) => env.LINKS.put('link:' + l.id, JSON.stringify(l));
 async function createOrder(env, l, origin) {
   const r = await fetch(FAM + '/api/create-order', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'X-Api-Key': env.FAM_API_KEY },
+    headers: { 'content-type': 'application/json', 'X-Api-Key': keyOf(env) },
     body: JSON.stringify({ amount: Number(l.amount), customer_name: l.merchant, webhook_url: origin + '/api/webhook' })
   });
   const j = await r.json().catch(() => ({}));
@@ -56,7 +58,7 @@ async function status(id, env) {
 async function webhook(req, env) {
   const raw = await req.arrayBuffer();
   const sig = (req.headers.get('x-famgateway-signature') || '').toLowerCase();
-  if (!safeEq(await hmacHex(env.FAM_API_KEY, raw), sig)) return json({ error: 'bad signature' }, 401);
+  if (!safeEq(await hmacHex(keyOf(env), raw), sig)) return json({ error: 'bad signature' }, 401);
   const e = JSON.parse(new TextDecoder().decode(raw));
   if (e.event === 'payment.success' || e.status === 'success') {
     const id = await env.LINKS.get('order:' + e.order_id);
@@ -102,8 +104,6 @@ export default {
       const m = p.match(/^\/api\/pay\/([A-Za-z0-9]{8})(\/status)?$/);
       if (m) return m[2] ? await status(m[1], env) : await payInfo(m[1], env, url.origin);
       if (p.startsWith('/api/admin/')) {
-        const pw = (req.headers.get('authorization') || '').replace(/^Bearer /, '');
-        if (!env.ADMIN_PASSWORD || !safeEq(pw, env.ADMIN_PASSWORD)) return json({ error: 'Unauthorized' }, 401);
         return await admin(req, env, p);
       }
       return env.ASSETS.fetch(req);
