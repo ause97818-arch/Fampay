@@ -25,6 +25,12 @@ input:focus{border-color:var(--blue)}
 .btn.danger{background:transparent;color:var(--bad);border:1.5px solid var(--bad)}
 .btn.sm{padding:8px 12px;font-size:12.5px;border-radius:10px}
 .btn.ok{background:var(--ok);opacity:1;cursor:default}
+.btn.ok:not(:disabled){cursor:pointer}
+.pop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:center;padding:20px;z-index:50}
+.popc{background:var(--white);border-radius:24px;padding:28px 24px;text-align:center;max-width:340px;width:100%}
+.tick{width:72px;height:72px;border-radius:50%;background:var(--ok);color:#fff;font-size:40px;display:grid;place-items:center;margin:0 auto 14px;animation:pp .35s}
+@keyframes pp{from{transform:scale(.4)}to{transform:scale(1)}}
+.pamt{font-size:34px;font-weight:800;margin:6px 0}.pm{font-size:13px;color:var(--mute);margin-bottom:6px;word-break:break-all}
 .btn:disabled{opacity:.7}
 .btn.ok:disabled{opacity:1}
 .msg{font-size:13px;color:var(--bad);margin-top:10px;min-height:18px}
@@ -177,6 +183,12 @@ const paidView=d=>view(`<div class="total-l">PAYMENT RECEIVED</div><div class="t
   <div style="margin-top:14px"><div class="row"><span>Merchant</span><span>${esc(d.merchant)}</span></div>
   <div class="row"><span>UTR</span><span>${esc(d.utr||'—')}</span></div>
   <div class="row"><span>Verification</span><span><span class="badge done">Paid</span></span></div></div><div class="foot">Powered by <b>TH3 BUNNY M.</b></div>`);
+function success(s){
+  paidView(s);
+  const o=document.createElement('div');o.className='pop';
+  o.innerHTML=`<div class="popc"><div class="tick">✓</div><h2 style="margin:0">Payment successful</h2><div class="pamt">₹${inr(s.amount)}</div><div class="pm">UTR ${esc(s.utr||'—')}</div><button class="btn full" id="popok">Done</button></div>`;
+  document.body.appendChild(o);o.querySelector('#popok').onclick=()=>o.remove();
+}
 let checkFn=null,busy=false;
 const kick=()=>{if(checkFn&&!document.hidden)checkFn()};
 document.addEventListener('visibilitychange',kick);window.addEventListener('focus',kick);window.addEventListener('pageshow',kick);
@@ -195,7 +207,8 @@ async function payPage(id){
   view(`<div class="total-l">ORDER TOTAL</div><div class="total">₹${inr(o.pay)}<small>INR</small></div>
     <div class="qrbox"><div id="qr"><img src="${esc(o.qr)}" alt="UPI QR code"></div><div class="scan">Scan with any UPI app</div>
     <div class="acts" style="justify-content:center"><a class="btn sm ghost" href="${esc(o.qr)}" target="_blank" rel="noopener">Save QR</a><a class="btn sm" href="${esc(o.intent)}">Pay with UPI app</a></div></div>
-    <div style="margin-top:14px"><div class="row"><span>Merchant</span><span>${esc(d.merchant)}</span></div>
+    <button class="btn ok full" id="chk">Check payment</button><div class="msg" id="chkmsg" style="color:var(--mute);text-align:center"></div>
+    <div style="margin-top:8px"><div class="row"><span>Merchant</span><span>${esc(d.merchant)}</span></div>
     <div class="row"><span>Order ID</span><span>${esc(o.id)}</span></div>
     <div class="row"><span>Expires in</span><span id="cd">--</span></div>
     <div class="row"><span>Verification</span><span><span class="badge">Waiting for payment…</span></span></div></div>
@@ -205,11 +218,18 @@ async function payPage(id){
     const s=Math.floor(left/1e3),dd=Math.floor(s/86400);
     $('#cd').textContent=(dd?dd+'d ':'')+pad(Math.floor(s%86400/3600))+':'+pad(Math.floor(s%3600/60))+':'+pad(s%60)};
   tick();timers.push(setInterval(tick,1000));
-  checkFn=async()=>{
-    if(busy)return;busy=true;
-    try{const s=await(await fetch('/api/pay/'+id+'/status',{cache:'no-store'})).json();
-      if(s.state==='paid'){clearT();paidView(s)}else if(s.state!=='pending'){clearT();payPage(id)}}catch(e){}
-    busy=false};
+  checkFn=async(force)=>{
+    if(busy&&!force)return;busy=true;
+    try{const s=await(await fetch('/api/pay/'+id+'/status'+(force?'?force=1':''),{cache:'no-store'})).json();
+      if(s.state==='paid'){clearT();success(s)}
+      else if(s.state!=='pending'){clearT();payPage(id)}
+      else if(force)return 'pending';
+    }catch(e){if(force)return 'error'}
+    finally{busy=false}
+  };
+  $('#chk').onclick=async()=>{const b=$('#chk');b.disabled=true;b.textContent='Checking…';
+    const r=await checkFn(true);
+    if(r){b.disabled=false;b.textContent='Check payment';$('#chkmsg').textContent=r==='error'?'Network problem, dobara try karo.':'Payment abhi nahi mila. Pay karne ke 5-10 sec baad dobara dabao.'}};
   checkFn();timers.push(setInterval(()=>checkFn&&checkFn(),2000));
 }
 route();
