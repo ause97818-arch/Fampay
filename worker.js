@@ -46,14 +46,21 @@ async function payInfo(id, env, origin) {
   return json({ ...base, state: 'pending', order: l.order });
 }
 const paidRes = l => json({ state: 'paid', amount: l.amount, merchant: l.merchant, utr: l.utr });
-async function status(id, env) {
+async function status(id, env, force) {
   const l = await getL(env, id);
   if (!l) return json({ state: 'gone' });
   if (l.paid) return paidRes(l);
   if (Date.now() >= l.expires) return json({ state: 'expired' });
   if (!l.order) return json({ state: 'renew' });
   const r = await fetch(FAM + '/api/checkout-status.php?order_id=' + encodeURIComponent(l.order.id));
-  const j = await r.json().catch(() => ({}));
+  let j = await r.json().catch(() => ({}));
+  if (j.status !== 'success' && force) {   // manual "Check payment": authoritative server-to-server check as well
+    try {
+      const r2 = await fetch(FAM + '/api/verify-order.php?order_id=' + encodeURIComponent(l.order.id), { headers: { 'X-Api-Key': keyOf(env) } });
+      const j2 = await r2.json().catch(() => ({}));
+      if (j2.status === 'success' && j2.data) j = { status: 'success', ...j2.data };
+    } catch (e) {}
+  }
   if (j.status === 'success') { await markPaid(env, l, j); return paidRes(l); }
   if (j.status === 'expired') { l.order = null; await putL(env, l); return json({ state: 'renew' }); }
   return json({ state: 'pending' });
@@ -105,7 +112,7 @@ export default {
     try {
       if (p === '/api/webhook' && req.method === 'POST') return await webhook(req, env);
       const m = p.match(/^\/api\/pay\/([A-Za-z0-9]{8})(\/status)?$/);
-      if (m) return m[2] ? await status(m[1], env) : await payInfo(m[1], env, url.origin);
+      if (m) return m[2] ? await status(m[1], env, url.searchParams.has('force')) : await payInfo(m[1], env, url.origin);
       if (p.startsWith('/api/admin/')) {
         return await admin(req, env, p);
       }
